@@ -1,0 +1,24 @@
+model:
+  id: "google/vit-large-patch32-384"
+  projector_type: "llava" # Options: none, llava, gemma
+  num_classes: 102
+
+experiment:
+  # Options: 
+  # 1. train_ve_out_ch (VE frozen, bypass projector, train CH)
+  # 2. train_proj_out_ch (VE frozen, Projector frozen, train CH)
+  # 3. train_proj_ch (VE frozen, train Projector, train CH)
+  # 4. train_ve_ch (Train VE, bypass projector, train CH)
+  # 5. train_all (Train VE, Train Projector, train CH)
+  situation: "train_all"
+
+data:
+  train_batch_size: 64
+  val_batch_size: 128
+  num_workers: 4
+  data_dir: "./data"
+
+trainer:
+  learning_rate: 1.0e-4
+  max_epochs: 5
+  precision: "16-mixed"
