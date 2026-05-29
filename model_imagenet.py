@@ -75,9 +75,27 @@ class CrossAttentionBridge(nn.Module):
         return out
 
 
+class MLPBridge(nn.Module):
+    """Two-layer MLP with a midpoint hidden dim: Linear → GELU → LayerNorm → Linear."""
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        mid = (in_dim + out_dim) // 2
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, mid),
+            nn.GELU(),
+            nn.LayerNorm(mid),
+            nn.Linear(mid, out_dim)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+
 _BRIDGE_REGISTRY = {
     "linear":          LinearBridge,
     "low_rank":        LowRankBridge,
+    "mlp":             MLPBridge,
     "patch_pool":      PatchPoolBridge,
     "cross_attention": CrossAttentionBridge,
 }

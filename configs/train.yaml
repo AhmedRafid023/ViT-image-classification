@@ -15,11 +15,12 @@ model:
   projector_type: "llava"
 
   # Dimension bridge between VE and projector (only active when ve_dim != proj_in_dim).
-  # Options: auto | none | linear | low_rank | patch_pool | cross_attention
+  # Options: auto | none | linear | low_rank | mlp | patch_pool | cross_attention
   #   auto           — inserts a LinearBridge automatically when dims mismatch
   #   none           — no bridge; raises an error if dims do not match
   #   linear         — single linear layer  Y = XW
   #   low_rank       — LoRA-style MLP  Y = GELU(X W_down) W_up  (rank=64)
+  #   mlp            — Linear → GELU → LayerNorm → Linear  (midpoint hidden dim)
   #   patch_pool     — spatial 2x2 patch-merge then linear projection
   #   cross_attention— Perceiver cross-attention resampler with learnable queries
   bridge_type: "auto"
