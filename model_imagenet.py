@@ -1,8 +1,86 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import lightning as L
 import gc
 from transformers import AutoModel, AutoModelForImageTextToText, LlavaForConditionalGeneration
+
+
+# ---------------------------------------------------------------------------
+# Dimension Bridge modules (used when ve_dim != proj_in_dim)
+# ---------------------------------------------------------------------------
+
+class LinearBridge(nn.Module):
+    """Single linear projection: Y = XW  (no non-linearity)."""
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.proj = nn.Linear(in_dim, out_dim)
+
+    def forward(self, x):
+        return self.proj(x)
+
+
+class LowRankBridge(nn.Module):
+    """LoRA-style bottleneck: Y = GELU(X W_down) W_up, rank r."""
+    def __init__(self, in_dim, out_dim, rank=64):
+        super().__init__()
+        self.down = nn.Linear(in_dim, rank)
+        self.up   = nn.Linear(rank, out_dim)
+
+    def forward(self, x):
+        return self.up(F.gelu(self.down(x)))
+
+
+class PatchPoolBridge(nn.Module):
+    """
+    Spatial pixel-merge bridge (inspired by Qwen2-VL / Gemma 4).
+    Merges every 2x2 neighbourhood in the token sequence, then projects.
+    Falls back to a simple linear layer when the sequence length is not
+    divisible by 4 (e.g. because a [CLS] token is present).
+    """
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.proj = nn.Linear(in_dim * 4, out_dim)
+
+    def forward(self, x):
+        # x: (B, N, C)
+        B, N, C = x.shape
+        if N % 4 != 0:
+            # fallback: plain linear without spatial merge
+            return nn.functional.linear(
+                x,
+                self.proj.weight[:, :C],
+                self.proj.bias
+            )
+        x = x.view(B, N // 4, C * 4)
+        return self.proj(x)
+
+
+class CrossAttentionBridge(nn.Module):
+    """
+    Perceiver-style cross-attention resampler.
+    A fixed set of k learnable queries attend to the visual tokens.
+    """
+    def __init__(self, in_dim, out_dim, num_queries=256, num_heads=8):
+        super().__init__()
+        self.queries = nn.Parameter(torch.randn(1, num_queries, out_dim))
+        self.attn    = nn.MultiheadAttention(out_dim, num_heads, batch_first=True)
+        self.kv_proj = nn.Linear(in_dim, out_dim)
+
+    def forward(self, x):
+        # x: (B, N, in_dim)
+        kv = self.kv_proj(x)
+        q  = self.queries.expand(x.size(0), -1, -1)
+        out, _ = self.attn(q, kv, kv)
+        return out
+
+
+_BRIDGE_REGISTRY = {
+    "linear":          LinearBridge,
+    "low_rank":        LowRankBridge,
+    "patch_pool":      PatchPoolBridge,
+    "cross_attention": CrossAttentionBridge,
+}
 
 class ProjectorAblationModel(L.LightningModule):
     def __init__(self, config):
@@ -12,8 +90,9 @@ class ProjectorAblationModel(L.LightningModule):
         self.situation = config['experiment']['situation']
         self.lr = config['trainer'].get('learning_rate', 1e-4) 
         
-        model_id = config['model']['id']
-        projector_type = config['model']['projector_type']
+        model_id        = config['model']['id']
+        projector_type  = config['model']['projector_type']
+        bridge_type     = config['model'].get('bridge_type', 'auto')  # auto | none | linear | low_rank | patch_pool | cross_attention
         
         # --- 1. Load the Base Vision Encoder (VE) ---
         base_model = AutoModel.from_pretrained(model_id)
@@ -69,19 +148,67 @@ class ProjectorAblationModel(L.LightningModule):
                 
             del vlm; gc.collect() 
 
+        elif projector_type == "gemma4":
+            print("Extracting Gemma 4 Projector Weights...")
+            vlm = AutoModelForImageTextToText.from_pretrained("google/gemma-4-E4B-it", torch_dtype=torch.float16, device_map="cpu", trust_remote_code=True)
+            
+            self.proj = None
+            possible_names = ["multi_modal_projector", "vision_projector", "projector"]
+            
+            search_bases = [vlm]
+            if hasattr(vlm, "model"):
+                search_bases.append(vlm.model)
+                
+            for base in search_bases:
+                for name, module in base.named_children():
+                    if any(p in name.lower() for p in possible_names):
+                        self.proj = module.float() # Ensures FP32 for GradScaler
+                        break
+                if self.proj is not None:
+                    break
+                        
+            if self.proj is None:
+                raise ValueError("Could not automatically locate the Gemma 4 projector.")
+            
+            proj_in_dim = vlm.config.vision_config.hidden_size
+            
+            if hasattr(vlm.config, "text_config"):
+                llm_hidden_dim = vlm.config.text_config.hidden_size
+            else:
+                llm_hidden_dim = vlm.config.hidden_size
+                
+            del vlm; gc.collect()
+
         elif projector_type == "none":
             self.proj = nn.Identity()
             proj_in_dim = ve_dim
             llm_hidden_dim = ve_dim
         else:
-            raise ValueError("Invalid projector_type. Choose 'llava', 'gemma', or 'none'.")
+            raise ValueError("Invalid projector_type. Choose 'llava', 'gemma', 'gemma4', or 'none'.")
 
-        # --- 3. Strict Dimension Guard (No Bridge Layer!) ---
-        if projector_type != "none" and ve_dim != proj_in_dim:
-            raise ValueError(
-                f"Dimension mismatch! Vision Encoder outputs {ve_dim}, but the {projector_type} projector expects {proj_in_dim}. "
-                f"Because the bridge layer is removed, you MUST use a matching model."
-            )
+        # --- 3. Dimension Bridge (optional) ---
+        # The bridge is inserted between the VE and the projector only when
+        # the dimensions do not match, or when an explicit bridge_type is given.
+        self.bridge = None
+        if projector_type != "none":
+            dims_match = (ve_dim == proj_in_dim)
+            need_bridge = (not dims_match) or (bridge_type not in ('auto', 'none'))
+
+            if need_bridge:
+                effective_bridge = bridge_type if bridge_type not in ('auto', 'none') else 'linear'
+                if bridge_type == 'none' and not dims_match:
+                    raise ValueError(
+                        f"Dimension mismatch! VE outputs {ve_dim}, projector expects {proj_in_dim}. "
+                        f"Set model.bridge_type to a valid bridge (linear | low_rank | patch_pool | cross_attention) "
+                        f"or use a matching backbone."
+                    )
+                if effective_bridge not in _BRIDGE_REGISTRY:
+                    raise ValueError(f"Unknown bridge_type '{effective_bridge}'. "
+                                     f"Choose from: {list(_BRIDGE_REGISTRY.keys())} or 'none' / 'auto'.")
+                self.bridge = _BRIDGE_REGISTRY[effective_bridge](ve_dim, proj_in_dim)
+                print(f"Bridge: {effective_bridge}  ({ve_dim} → {proj_in_dim})")
+            else:
+                print("Bridge: not needed (dimensions already match)")
 
         # --- 4. Route Logic & Dimensions based on Situation ---
         no_proj_situations = ["train_ve_out_ch", "train_ve_ch"]
@@ -111,6 +238,9 @@ class ProjectorAblationModel(L.LightningModule):
         elif self.situation == "train_proj_ch":
             for param in self.proj.parameters():
                 param.requires_grad = True
+            if self.bridge is not None:  # bridge is part of the projector pipeline
+                for param in self.bridge.parameters():
+                    param.requires_grad = True
         elif self.situation == "train_ve_ch":
             for param in self.ve.parameters():
                 param.requires_grad = True # Proj bypassed
@@ -119,6 +249,9 @@ class ProjectorAblationModel(L.LightningModule):
                 param.requires_grad = True
             for param in self.proj.parameters():
                 param.requires_grad = True
+            if self.bridge is not None:
+                for param in self.bridge.parameters():
+                    param.requires_grad = True
         else:
             raise ValueError(f"Unknown situation: {self.situation}")
 
@@ -131,6 +264,8 @@ class ProjectorAblationModel(L.LightningModule):
         
         if self.use_projector:
             features = ve_outputs.last_hidden_state
+            if self.bridge is not None:
+                features = self.bridge(features)
             features = self.proj(features)
             
             if features.dim() == 3:

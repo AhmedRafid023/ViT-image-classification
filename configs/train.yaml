@@ -1,15 +1,38 @@
 model:
-  id: "google/vit-large-patch32-384"
-  projector_type: "llava" # Options: none, llava, gemma
+  # ViT backbone — any HuggingFace model ID is supported. Examples:
+  #   google/vit-base-patch16-224       (Supervised, D=768)
+  #   google/vit-large-patch16-224      (Supervised, D=1024)
+  #   google/vit-huge-patch14-224-in21k (Supervised, D=1280)
+  #   facebook/dinov2-base              (Self-Supervised, D=768)
+  #   facebook/dinov2-large             (Self-Supervised, D=1024)
+  id: "google/vit-large-patch16-224"
+
+  # VLM projector to transplant. Options: none | llava | gemma | gemma4
+  #   llava   — LLaVA 1.5 2-layer MLP, expects D_proj=1024, outputs 4096
+  #   gemma   — Gemma 3 linear projector (google/gemma-3-4b-it), expects D_proj=1152
+  #   gemma4  — Gemma 4 projector (google/gemma-4-E4B-it), expects D_proj=1152
+  #   none    — Identity (no projector; CH placed directly after VE)
+  projector_type: "llava"
+
+  # Dimension bridge between VE and projector (only active when ve_dim != proj_in_dim).
+  # Options: auto | none | linear | low_rank | patch_pool | cross_attention
+  #   auto           — inserts a LinearBridge automatically when dims mismatch
+  #   none           — no bridge; raises an error if dims do not match
+  #   linear         — single linear layer  Y = XW
+  #   low_rank       — LoRA-style MLP  Y = GELU(X W_down) W_up  (rank=64)
+  #   patch_pool     — spatial 2x2 patch-merge then linear projection
+  #   cross_attention— Perceiver cross-attention resampler with learnable queries
+  bridge_type: "auto"
+
   num_classes: 200
 
 experiment:
-  # Options: 
-  # 1. train_ve_out_ch (VE frozen, bypass projector, train CH)
-  # 2. train_proj_out_ch (VE frozen, Projector frozen, train CH)
-  # 3. train_proj_ch (VE frozen, train Projector, train CH)
-  # 4. train_ve_ch (Train VE, bypass projector, train CH)
-  # 5. train_all (Train VE, Train Projector, train CH)
+  # Options:
+  # 1. train_ve_out_ch  (VE frozen, bypass projector+bridge, train CH)
+  # 2. train_proj_out_ch (VE frozen, Projector+bridge frozen, train CH)
+  # 3. train_proj_ch    (VE frozen, train Projector+bridge, train CH)
+  # 4. train_ve_ch      (Train VE, bypass projector+bridge, train CH)
+  # 5. train_all        (Train VE + Projector + bridge, train CH)
   situation: "train_all"
 
 data:
