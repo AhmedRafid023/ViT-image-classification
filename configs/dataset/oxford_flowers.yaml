@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "OxfordFlowers"
+  num_classes: 102
+  root: "./data"

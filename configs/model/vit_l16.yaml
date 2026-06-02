@@ -1,0 +1,6 @@
+# @package _global_
+model:
+  # google/vit-large-patch16-224  — Supervised ViT-L/16, D=1024
+  id: "google/vit-large-patch16-224"
+  projector_type: "llava"
+  bridge_type: "none"

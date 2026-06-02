@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "StanfordCars"
+  num_classes: 196
+  root: "./data"

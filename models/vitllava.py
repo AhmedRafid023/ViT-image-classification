@@ -3,7 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 import gc
+import pandas as pd
 from transformers import AutoModel, AutoModelForImageTextToText, LlavaForConditionalGeneration
+from utils.tools import update_results
 
 
 # ---------------------------------------------------------------------------
@@ -296,20 +298,70 @@ class ProjectorAblationModel(L.LightningModule):
             
         return self.ch(features)
 
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if mode:
+            # Keep frozen submodules in eval mode so BN/Dropout behave correctly
+            for name in ("ve", "proj", "bridge"):
+                m = getattr(self, name, None)
+                if m is not None and not any(p.requires_grad for p in m.parameters()):
+                    m.eval()
+        return self
+
     def training_step(self, batch, batch_idx):
         logits = self(batch['pixel_values'])
         loss = self.loss_fn(logits, batch['label'])
         acc = (torch.argmax(logits, dim=1) == batch['label']).float().mean()
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train_acc", acc, prog_bar=True)
+        bs = batch['pixel_values'].shape[0]
+        self.log("train_loss", loss, prog_bar=True, batch_size=bs)
+        self.log("train_acc", acc, prog_bar=True, batch_size=bs)
         return loss
 
     def validation_step(self, batch, batch_idx):
         logits = self(batch['pixel_values'])
         loss = self.loss_fn(logits, batch['label'])
         acc = (torch.argmax(logits, dim=1) == batch['label']).float().mean()
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", acc, prog_bar=True)
+        bs = batch['pixel_values'].shape[0]
+        self.log("val_loss", loss, prog_bar=True, batch_size=bs)
+        self.log("val_acc", acc, prog_bar=True, batch_size=bs)
+
+    def on_test_epoch_start(self):
+        self._test_results = []
+
+    def test_step(self, batch, batch_idx):
+        pixel_values = batch["pixel_values"]
+        labels       = batch["label"]
+        paths        = batch.get("image_path", ["unknown"] * len(labels))
+        bs           = pixel_values.shape[0]
+
+        logits = self(pixel_values)
+        preds  = torch.argmax(logits, dim=1)
+
+        classnames = getattr(self, "classnames", None)
+        for i in range(bs):
+            t, p = labels[i].item(), preds[i].item()
+            row = {
+                "image_path":     paths[i],
+                "true_label_idx": t,
+                "pred_label_idx": p,
+                "is_correct":     int(t == p),
+            }
+            if classnames:
+                row["true_label_name"] = classnames[t] if t < len(classnames) else str(t)
+                row["pred_label_name"] = classnames[p] if p < len(classnames) else str(p)
+            self._test_results.append(row)
+
+        self.log("test_acc", (preds == labels).float().mean(), batch_size=bs, prog_bar=True)
+
+    def on_test_epoch_end(self):
+        out_csv = self.config["test"]["output_csv"]
+        pd.DataFrame(self._test_results).to_csv(out_csv, index=False)
+        print(f"Detailed results saved to: {out_csv}")
+
+        acc = sum(r["is_correct"] for r in self._test_results) / len(self._test_results)
+        meta = getattr(self, "test_meta", {})
+        if meta:
+            update_results(meta["model"], meta["dataset"], self.situation, round(acc * 100, 2))
 
     def configure_optimizers(self):
         trainable_params = filter(lambda p: p.requires_grad, self.parameters())

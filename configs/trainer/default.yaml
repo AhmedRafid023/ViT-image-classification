@@ -1,0 +1,5 @@
+# @package _global_
+trainer:
+  learning_rate: 1.0e-4
+  max_epochs: 3
+  precision: "16-mixed"
