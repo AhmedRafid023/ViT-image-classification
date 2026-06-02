@@ -1,0 +1,24 @@
+# Environment
+.env
+
+# Data and outputs
+data/
+checkpoints/
+output/
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Logs
+lightning_logs/
+*.log
+
+# Git
+.git/
+.gitignore

@@ -1,7 +1,6 @@
 data/
 results/
 .env
-.dockerignore
 
 __pycache__/
 *.pyc
