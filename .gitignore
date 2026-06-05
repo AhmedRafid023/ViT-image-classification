@@ -1,4 +1,6 @@
 data/
+!configs/data/
+!configs/data/**
 results/
 .env
 
