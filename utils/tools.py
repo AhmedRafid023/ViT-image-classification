@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime
 
-RESULTS_JSONL = "outputs/results.jsonl"
+RESULTS_JSONL = "/content/drive/MyDrive/ViT/results.jsonl"
 
 
 def update_results(model, dataset, situation, accuracy):

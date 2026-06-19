@@ -77,7 +77,7 @@ class DatasetModuleWrapper(L.LightningDataModule):
         """Return list of classnames indexed by label (derived from train split)."""
         dataset = self._build_dassl_dataset()
         classnames_by_label = {}
-        for item in dataset.train_x + dataset.val + dataset.test:
+        for item in dataset.train_x + (dataset.val or []) + dataset.test:
             classnames_by_label[item.label] = item.classname
         return [classnames_by_label[i] for i in sorted(classnames_by_label.keys())]
 

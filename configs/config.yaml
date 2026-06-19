@@ -23,7 +23,7 @@ wandb:
   mode: "online"  # online | offline | disabled
 
 test:
-  after_train: true   # run test on best ckpt automatically after training
+  after_train: false  # run test on best ckpt automatically after training
   checkpoint: null    # used by test.py for standalone evaluation
   output_csv: null
 
