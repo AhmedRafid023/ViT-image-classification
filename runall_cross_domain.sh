@@ -11,11 +11,11 @@ TEST_DATASETS=(
 )
 
 MODELS=(
-    vit_b16
+    # vit_b16
     vit_l16
     vit_l32_384
-    vit_h14
-    dinov2_b
+    # vit_h14
+    # dinov2_b
     dinov2_l
 )
 
