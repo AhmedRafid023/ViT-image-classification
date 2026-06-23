@@ -2,5 +2,7 @@
 model:
   # google/vit-large-patch16-224  — Supervised ViT-L/16, D=1024
   id: "google/vit-large-patch16-224"
+  # Projector options: llava | blip2 | paligemma | gemma | gemma4 | llava_rand | none
   projector_type: "llava"
+  # Bridge options: auto | none | linear | mlp | low_rank | patch_pool | cross_attention
   bridge_type: "none"

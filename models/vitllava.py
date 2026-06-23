@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import lightning as L
 import gc
 import pandas as pd
-from transformers import AutoModel, AutoModelForImageTextToText, LlavaForConditionalGeneration
+from transformers import AutoModel, AutoModelForImageTextToText, LlavaForConditionalGeneration, Blip2ForConditionalGeneration
 from utils.tools import update_results
 
 
@@ -94,6 +94,21 @@ class MLPBridge(nn.Module):
 
 
 
+class Blip2ProjectorWrapper(nn.Module):
+    """Wraps BLIP-2's Q-Former + language_projection into a single forward pass."""
+    def __init__(self, query_tokens, qformer, language_projection):
+        super().__init__()
+        self.query_tokens = nn.Parameter(query_tokens.float().squeeze(0))  # [32, 768]
+        self.qformer = qformer
+        self.language_projection = language_projection
+
+    def forward(self, x):
+        B = x.shape[0]
+        q = self.query_tokens.unsqueeze(0).expand(B, -1, -1)
+        out = self.qformer(query_embeds=q, encoder_hidden_states=x)
+        return self.language_projection(out.last_hidden_state)  # [B, 32, llm_dim]
+
+
 _BRIDGE_REGISTRY = {
     "linear":          LinearBridge,
     "low_rank":        LowRankBridge,
@@ -132,22 +147,23 @@ class ProjectorAblationModel(L.LightningModule):
             print("Extracting LLaVA 1.5 Projector Weights...")
             vlm = LlavaForConditionalGeneration.from_pretrained("llava-hf/llava-1.5-7b-hf", torch_dtype=torch.float16, device_map="cpu")
             self.proj = vlm.multi_modal_projector.float() # Ensures FP32 for GradScaler
-            
+            self.proj_spatial_tokens = None  # LLaVA projector accepts arbitrary sequence length
+
             proj_in_dim = self.proj.linear_1.in_features
             llm_hidden_dim = self.proj.linear_2.out_features
-            del vlm; gc.collect() 
+            del vlm; gc.collect()
 
         elif projector_type == "gemma":
             print("Extracting Gemma 3 Projector Weights...")
             vlm = AutoModelForImageTextToText.from_pretrained("google/gemma-3-4b-it", torch_dtype=torch.float16, device_map="cpu", trust_remote_code=True)
-            
+
             self.proj = None
             possible_names = ["multi_modal_projector", "vision_projector", "projector"]
-            
+
             search_bases = [vlm]
             if hasattr(vlm, "model"):
                 search_bases.append(vlm.model)
-                
+
             for base in search_bases:
                 for name, module in base.named_children():
                     if any(p in name.lower() for p in possible_names):
@@ -155,30 +171,32 @@ class ProjectorAblationModel(L.LightningModule):
                         break
                 if self.proj is not None:
                     break
-                        
+
             if self.proj is None:
                 raise ValueError("Could not automatically locate the Gemma projector.")
-            
+
             proj_in_dim = vlm.config.vision_config.hidden_size
-            
+            # Gemma3's projector forward hardcodes a reshape to 64×64 spatial grid
+            self.proj_spatial_tokens = vlm.config.vision_config.image_size // vlm.config.vision_config.patch_size
+
             if hasattr(vlm.config, "text_config"):
                 llm_hidden_dim = vlm.config.text_config.hidden_size
             else:
                 llm_hidden_dim = vlm.config.hidden_size
-                
-            del vlm; gc.collect() 
+
+            del vlm; gc.collect()
 
         elif projector_type == "gemma4":
             print("Extracting Gemma 4 Projector Weights...")
             vlm = AutoModelForImageTextToText.from_pretrained("google/gemma-4-E4B-it", torch_dtype=torch.float16, device_map="cpu", trust_remote_code=True)
-            
+
             self.proj = None
             possible_names = ["multi_modal_projector", "vision_projector", "projector"]
-            
+
             search_bases = [vlm]
             if hasattr(vlm, "model"):
                 search_bases.append(vlm.model)
-                
+
             for base in search_bases:
                 for name, module in base.named_children():
                     if any(p in name.lower() for p in possible_names):
@@ -186,17 +204,40 @@ class ProjectorAblationModel(L.LightningModule):
                         break
                 if self.proj is not None:
                     break
-                        
+
             if self.proj is None:
                 raise ValueError("Could not automatically locate the Gemma 4 projector.")
-            
+
             proj_in_dim = vlm.config.vision_config.hidden_size
-            
+            self.proj_spatial_tokens = vlm.config.vision_config.image_size // vlm.config.vision_config.patch_size
+
             if hasattr(vlm.config, "text_config"):
                 llm_hidden_dim = vlm.config.text_config.hidden_size
             else:
                 llm_hidden_dim = vlm.config.hidden_size
-                
+
+            del vlm; gc.collect()
+
+        elif projector_type == "blip2":
+            print("Extracting BLIP-2 Q-Former Projector Weights...")
+            vlm = Blip2ForConditionalGeneration.from_pretrained("Salesforce/blip2-opt-2.7b", torch_dtype=torch.float16, device_map="cpu")
+            self.proj = Blip2ProjectorWrapper(
+                vlm.query_tokens,
+                vlm.qformer.float(),
+                vlm.language_projection.float(),
+            )
+            self.proj_spatial_tokens = None
+            proj_in_dim = vlm.config.qformer_config.encoder_hidden_size
+            llm_hidden_dim = vlm.config.text_config.hidden_size
+            del vlm; gc.collect()
+
+        elif projector_type == "paligemma":
+            print("Extracting PaliGemma Linear Projector Weights...")
+            vlm = AutoModelForImageTextToText.from_pretrained("google/paligemma-3b-pt-224", torch_dtype=torch.float16, device_map="cpu")
+            self.proj = vlm.multi_modal_projector.float()
+            self.proj_spatial_tokens = None
+            proj_in_dim = vlm.config.vision_config.hidden_size
+            llm_hidden_dim = vlm.config.text_config.hidden_size
             del vlm; gc.collect()
 
         elif projector_type == "llava_rand":
@@ -208,13 +249,15 @@ class ProjectorAblationModel(L.LightningModule):
                 nn.GELU(),
                 nn.Linear(llm_hidden_dim, llm_hidden_dim),
             )
+            self.proj_spatial_tokens = None
 
         elif projector_type == "none":
             self.proj = nn.Identity()
             proj_in_dim = ve_dim
             llm_hidden_dim = ve_dim
+            self.proj_spatial_tokens = None
         else:
-            raise ValueError("Invalid projector_type. Choose 'llava', 'llava_rand', 'gemma', 'gemma4', or 'none'.")
+            raise ValueError("Invalid projector_type. Choose 'llava', 'llava_rand', 'blip2', 'paligemma', 'gemma', 'gemma4', or 'none'.")
 
         # --- 3. Dimension Bridge (optional) ---
         # The bridge is inserted between the VE and the projector only when
@@ -296,6 +339,19 @@ class ProjectorAblationModel(L.LightningModule):
             features = ve_outputs.last_hidden_state
             if self.bridge is not None:
                 features = self.bridge(features)
+            if self.proj_spatial_tokens is not None:
+                # Drop CLS token and bilinearly interpolate patch tokens to the
+                # spatial grid size the projector's forward expects (e.g. 64×64 for Gemma3).
+                features = features[:, 1:, :]          # [B, N, D]
+                B, N, D = features.shape
+                H = W = int(N ** 0.5)
+                tgt = self.proj_spatial_tokens
+                features = (features.reshape(B, H, W, D)
+                                    .permute(0, 3, 1, 2))          # [B, D, H, W]
+                features = F.interpolate(features, size=(tgt, tgt),
+                                         mode='bilinear', align_corners=False)
+                features = (features.permute(0, 2, 3, 1)
+                                    .reshape(B, tgt * tgt, D))     # [B, tgt², D]
             features = self.proj(features)
             
             if features.dim() == 3:

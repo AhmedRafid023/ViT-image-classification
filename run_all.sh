@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run train then test for every dataset/model/situation/bridge combination.
+# Run train then test for every dataset/model/situation/projector/bridge combination.
 # Skips a combination if it already has an entry in outputs/results.jsonl.
 
 DATASETS=(
@@ -33,6 +33,12 @@ SITUATIONS=(
     # train_all
 )
 
+PROJECTOR_TYPES=(
+    llava
+    blip2
+    paligemma
+)
+
 BRIDGE_TYPES=(
     linear
     mlp
@@ -61,18 +67,20 @@ sys.exit(1)
 for MODEL in "${MODELS[@]}"; do
     for DATASET in "${DATASETS[@]}"; do
         for SIT in "${SITUATIONS[@]}"; do
-            for BRIDGE in "${BRIDGE_TYPES[@]}"; do
+            for PROJ in "${PROJECTOR_TYPES[@]}"; do
+                for BRIDGE in "${BRIDGE_TYPES[@]}"; do
 
-                if already_done "$MODEL" "$DATASET" "$SIT"; then
-                    echo "Skipping ${DATASET}/${MODEL}/${SIT}/${BRIDGE} — already in results.jsonl"
-                    continue
-                fi
+                    if already_done "$MODEL" "$DATASET" "$SIT"; then
+                        echo "Skipping ${DATASET}/${MODEL}/${SIT}/${PROJ}/${BRIDGE} — already in results.jsonl"
+                        continue
+                    fi
 
-                echo "=========================================="
-                echo "Train | dataset=${DATASET} model=${MODEL} situation=${SIT} bridge=${BRIDGE}"
-                echo "=========================================="
-                bash scripts/run.sh train "${DATASET}" "${MODEL}" "${SIT}" "" "model.bridge_type=${BRIDGE}" "test.after_train=true"
+                    echo "=========================================="
+                    echo "Train | dataset=${DATASET} model=${MODEL} situation=${SIT} proj=${PROJ} bridge=${BRIDGE}"
+                    echo "=========================================="
+                    bash scripts/run.sh train "${DATASET}" "${MODEL}" "${SIT}" "" "model.projector_type=${PROJ}" "model.bridge_type=${BRIDGE}" "test.after_train=true"
 
+                done
             done
         done
     done
