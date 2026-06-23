@@ -7,6 +7,7 @@ RESULTS_JSONL = "/content/drive/MyDrive/ViT/results.jsonl"
 
 def update_results(model, dataset, situation, accuracy):
     os.makedirs("outputs", exist_ok=True)
+    os.makedirs(os.path.dirname(RESULTS_JSONL), exist_ok=True)
 
     records = []
     if os.path.exists(RESULTS_JSONL):

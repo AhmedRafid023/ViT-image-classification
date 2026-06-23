@@ -34,9 +34,9 @@ SITUATIONS=(
 )
 
 PROJECTOR_TYPES=(
-    llava
+    # llava
     blip2
-    paligemma
+    # paligemma
 )
 
 BRIDGE_TYPES=(
@@ -49,7 +49,7 @@ already_done() {
 import json, sys
 model, dataset, situation = sys.argv[1:]
 try:
-    with open('outputs/results.jsonl') as f:
+    with open('/content/drive/MyDrive/ViT/results.jsonl') as f:
         for line in f:
             r = json.loads(line.strip())
             if (
