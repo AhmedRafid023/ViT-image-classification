@@ -5,7 +5,7 @@ from datetime import datetime
 RESULTS_JSONL = "/content/drive/MyDrive/ViT/results.jsonl"
 
 
-def update_results(model, dataset, situation, accuracy):
+def update_results(model, dataset, situation, accuracy, projector_type="", bridge_type=""):
     os.makedirs("outputs", exist_ok=True)
     os.makedirs(os.path.dirname(RESULTS_JSONL), exist_ok=True)
 
@@ -19,17 +19,25 @@ def update_results(model, dataset, situation, accuracy):
 
     ts = datetime.now().isoformat(timespec="seconds")
     for r in records:
-        if r["model"] == model and r["dataset"] == dataset and r["situation"] == situation:
+        if (
+            r.get("model") == model
+            and r.get("dataset") == dataset
+            and r.get("situation") == situation
+            and r.get("projector_type") == projector_type
+            and r.get("bridge_type") == bridge_type
+        ):
             r["accuracy"] = accuracy
             r["updated_at"] = ts
             break
     else:
         records.append({
-            "model":      model,
-            "dataset":    dataset,
-            "situation":  situation,
-            "accuracy":   accuracy,
-            "updated_at": ts,
+            "model":          model,
+            "dataset":        dataset,
+            "situation":      situation,
+            "projector_type": projector_type,
+            "bridge_type":    bridge_type,
+            "accuracy":       accuracy,
+            "updated_at":     ts,
         })
 
     with open(RESULTS_JSONL, "w") as f:

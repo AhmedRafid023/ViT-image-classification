@@ -155,7 +155,14 @@ def _test(config):
     print(f"FINAL TEST ACCURACY: {accuracy * 100:.2f}%")
     print("=" * 40)
 
-    update_results(choices.model, choices.dataset, config["experiment"]["situation"], round(accuracy * 100, 2))
+    update_results(
+        choices.model,
+        choices.dataset,
+        config["experiment"]["situation"],
+        round(accuracy * 100, 2),
+        projector_type=config["model"].get("projector_type", ""),
+        bridge_type=config["model"].get("bridge_type", ""),
+    )
 
 
 if __name__ == "__main__":

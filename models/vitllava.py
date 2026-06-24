@@ -427,7 +427,14 @@ class ProjectorAblationModel(L.LightningModule):
         acc = sum(r["is_correct"] for r in self._test_results) / len(self._test_results)
         meta = getattr(self, "test_meta", {})
         if meta:
-            update_results(meta["model"], meta["dataset"], self.situation, round(acc * 100, 2))
+            update_results(
+                meta["model"],
+                meta["dataset"],
+                self.situation,
+                round(acc * 100, 2),
+                projector_type=self.config["model"].get("projector_type", ""),
+                bridge_type=self.config["model"].get("bridge_type", ""),
+            )
 
     def configure_optimizers(self):
         trainable_params = filter(lambda p: p.requires_grad, self.parameters())

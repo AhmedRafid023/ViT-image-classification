@@ -47,7 +47,7 @@ BRIDGE_TYPES=(
 already_done() {
     python3 -c "
 import json, sys
-model, dataset, situation = sys.argv[1:]
+model, dataset, situation, projector_type, bridge_type = sys.argv[1:]
 try:
     with open('/content/drive/MyDrive/ViT/results.jsonl') as f:
         for line in f:
@@ -56,12 +56,14 @@ try:
                 r.get('model') == model
                 and r.get('dataset') == dataset
                 and r.get('situation') == situation
+                and r.get('projector_type') == projector_type
+                and r.get('bridge_type') == bridge_type
             ):
                 sys.exit(0)
 except FileNotFoundError:
     pass
 sys.exit(1)
-" "$1" "$2" "$3"
+" "$1" "$2" "$3" "$4" "$5"
 }
 
 for MODEL in "${MODELS[@]}"; do
@@ -70,7 +72,7 @@ for MODEL in "${MODELS[@]}"; do
             for PROJ in "${PROJECTOR_TYPES[@]}"; do
                 for BRIDGE in "${BRIDGE_TYPES[@]}"; do
 
-                    if already_done "$MODEL" "$DATASET" "$SIT"; then
+                    if already_done "$MODEL" "$DATASET" "$SIT" "$PROJ" "$BRIDGE"; then
                         echo "Skipping ${DATASET}/${MODEL}/${SIT}/${PROJ}/${BRIDGE} — already in results.jsonl"
                         continue
                     fi
