@@ -35,13 +35,15 @@ SITUATIONS=(
 
 PROJECTOR_TYPES=(
     # llava
-    blip2
+    llava_rand
+    # blip2
     # paligemma
 )
 
 BRIDGE_TYPES=(
     linear
-    mlp
+    # mlp
+    # none
 )
 
 already_done() {
