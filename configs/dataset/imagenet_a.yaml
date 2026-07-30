@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "ImageNetA"
+  num_classes: 200
+  root: "./data"

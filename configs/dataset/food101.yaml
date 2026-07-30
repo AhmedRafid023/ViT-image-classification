@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "Food101"
+  num_classes: 101
+  root: "./data"

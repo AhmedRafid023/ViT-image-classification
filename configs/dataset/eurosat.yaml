@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "EuroSAT"
+  num_classes: 10
+  root: "./data"

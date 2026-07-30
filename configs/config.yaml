@@ -1,0 +1,35 @@
+defaults:
+  - dataset: imagenet
+  - model: vit_b16
+  - trainer: default
+  - data: default
+  - override hydra/job_logging: disabled
+  - _self_
+
+# num_classes is always resolved from the active dataset config
+model:
+  num_classes: ${dataset.num_classes}
+
+# Training situation — override with: experiment.situation=train_ve_ch
+# Options: train_ve_out_ch | train_proj_out_ch | train_proj_ch | train_ve_ch | train_all
+mode: train  # train | test
+
+experiment:
+  situation: train_all
+
+wandb:
+  project: "vit-image-classification"
+  entity: null    # set to your wandb username or team
+  mode: "online"  # online | offline | disabled
+
+test:
+  after_train: false  # run test on best ckpt automatically after training
+  checkpoint: null    # used by test.py for standalone evaluation
+  output_csv: null
+
+hydra:
+  job:
+    chdir: false
+  output_subdir: null   # disable .hydra/ dump; config is saved to wandb run dir instead
+  run:
+    dir: .

@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "Caltech101"
+  num_classes: 100
+  root: "./data"

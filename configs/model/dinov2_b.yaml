@@ -1,0 +1,6 @@
+# @package _global_
+model:
+  # facebook/dinov2-base  — Self-Supervised DINOv2-B, D=768
+  id: "facebook/dinov2-base"
+  projector_type: "llava"
+  bridge_type: "none"

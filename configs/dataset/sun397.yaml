@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "SUN397"
+  num_classes: 397
+  root: "./data"

@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "ImageNetSketch"
+  num_classes: 1000
+  root: "./data"

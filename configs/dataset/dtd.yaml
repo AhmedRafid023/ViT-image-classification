@@ -1,0 +1,5 @@
+# @package _global_
+dataset:
+  name: "DescribableTextures"
+  num_classes: 47
+  root: "./data"

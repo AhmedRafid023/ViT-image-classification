@@ -1,0 +1,10 @@
+# @package _global_
+model:
+  # google/vit-base-patch16-224  — Supervised ViT-B/16, D=768
+  id: "google/vit-base-patch16-224"
+
+  # VLM projector. Options: none | llava | gemma | gemma4
+  projector_type: "llava"
+
+  # Dimension bridge. Options: auto | none | linear | low_rank | mlp | patch_pool | cross_attention
+  bridge_type: "none"

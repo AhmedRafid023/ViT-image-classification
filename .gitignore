@@ -1,7 +1,8 @@
 data/
+!configs/data/
+!configs/data/**
 results/
 .env
-.dockerignore
 
 __pycache__/
 *.pyc
@@ -15,3 +16,4 @@ checkpoints/
 
 # Environment & Logs
 lightning_logs/
+outputs/
